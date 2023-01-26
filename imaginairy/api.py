@@ -55,6 +55,8 @@ elif IMAGINAIRY_SAFETY_MODE == "filter":
 # we put this in the global scope so it can be used in the interactive shell
 _most_recent_result = None
 
+_persistent_model = None
+
 
 def imagine_image_files(
     prompts,
@@ -141,6 +143,7 @@ def imagine(
     half_mode=None,
     add_caption=False,
     unsafe_retry_count=1,
+    persistent_mode=False
 ):
     prompts = [ImaginePrompt(prompts)] if isinstance(prompts, str) else prompts
     prompts = [prompts] if isinstance(prompts, ImaginePrompt) else prompts
@@ -171,6 +174,7 @@ def imagine(
                     progress_img_interval_min_s=progress_img_interval_min_s,
                     half_mode=half_mode,
                     add_caption=add_caption,
+                    persistent_mode=persistent_mode
                 )
                 if not result.is_nsfw:
                     break
@@ -188,7 +192,9 @@ def _generate_single_image(
     progress_img_interval_min_s=0.1,
     half_mode=None,
     add_caption=False,
+    persistent_mode=False
 ):
+    global _persistent_model  # noqa
     latent_channels = 4
     downsampling_factor = 8
     batch_size = 1
@@ -201,12 +207,18 @@ def _generate_single_image(
         _, img_type = prompt.mask_image.strip("*").split(".")
         prompt.mask_image = _most_recent_result.images[img_type]
 
-    model = get_diffusion_model(
-        weights_location=prompt.model,
-        config_path=prompt.model_config_path,
-        half_mode=half_mode,
-        for_inpainting=prompt.mask_image or prompt.mask_prompt or prompt.outpaint,
-    )
+    if persistent_mode and _persistent_model is not None:
+        model = _persistent_model
+    else:
+        model = get_diffusion_model(
+            weights_location=prompt.model,
+            config_path=prompt.model_config_path,
+            half_mode=half_mode,
+            for_inpainting=prompt.mask_image or prompt.mask_prompt or prompt.outpaint,
+        )
+        if persistent_mode:
+            _persistent_model = model
+
     has_depth_channel = hasattr(model, "depth_stage_key")
     with ImageLoggingContext(
         prompt=prompt,
