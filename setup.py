@@ -1,4 +1,21 @@
+import sys
+
 from setuptools import find_packages, setup
+
+is_for_windows = len(sys.argv) >= 3 and sys.argv[2].startswith("--plat-name=win")
+
+if is_for_windows:
+    scripts = None
+    entry_points = {
+        "console_scripts": [
+            "imagine=imaginairy.cmds:imagine_cmd",
+            "aimg=imaginairy.cmds:aimg",
+        ],
+    }
+else:
+    scripts = ["imaginairy/bin/aimg", "imaginairy/bin/imagine"]
+    entry_points = None
+
 
 with open("README.md", encoding="utf-8") as f:
     readme = f.read()
@@ -7,7 +24,7 @@ setup(
     name="imaginAIry",
     author="Bryce Drennan",
     # author_email="b r y p y d o t io",
-    version="8.1.0",
+    version="9.0.2",
     description="AI imagined images. Pythonic generation of stable diffusion images.",
     long_description=readme,
     long_description_content_type="text/markdown",
@@ -16,16 +33,13 @@ setup(
         "Source": "https://github.com/brycedrennan/imaginAIry",
     },
     packages=find_packages(include=("imaginairy", "imaginairy.*")),
-    entry_points={
-        "console_scripts": [
-            "imagine=imaginairy.cmds:imagine_cmd",
-            "aimg=imaginairy.cmds:aimg",
-        ],
-    },
+    scripts=scripts,
+    entry_points=entry_points,
     package_data={
         "imaginairy": [
             "configs/*.yaml",
             "data/*.*",
+            "bin/*.*",
             "enhancers/phraselists/*.txt",
             "vendored/clip/*.txt.gz",
             "vendored/clipseg/*.pth",
@@ -36,6 +50,7 @@ setup(
     },
     install_requires=[
         "click",
+        "click-help-colors",
         "click-shell",
         "protobuf != 3.20.2, != 3.19.5",
         "facexlib",

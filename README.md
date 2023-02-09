@@ -16,6 +16,9 @@ AI imagined images. Pythonic generation of stable diffusion images.
 >> imagine "a scenic landscape" "a photo of a dog" "photo of a fruit bowl" "portrait photo of a freckled woman"
 # Stable Diffusion 2.1
 >> imagine --model SD-2.1 "a forest"
+# Make generation gif
+>> imagine --gif "a flower"
+
 ```
 
 <details closed>
@@ -40,7 +43,9 @@ Generating 🖼  : "portrait photo of a freckled woman" 512x512px seed:500686645
 </details>
 
 <img src="https://raw.githubusercontent.com/brycedrennan/imaginAIry/master/assets/000019_786355545_PLMS50_PS7.5_a_scenic_landscape.jpg" height="256"><img src="https://raw.githubusercontent.com/brycedrennan/imaginAIry/master/assets/000032_337692011_PLMS40_PS7.5_a_photo_of_a_dog.jpg"  height="256"><br>
-<img src="https://raw.githubusercontent.com/brycedrennan/imaginAIry/master/assets/000056_293284644_PLMS40_PS7.5_photo_of_a_bowl_of_fruit.jpg" height="256"><img src="https://raw.githubusercontent.com/brycedrennan/imaginAIry/master/assets/000078_260972468_PLMS40_PS7.5_portrait_photo_of_a_freckled_woman.jpg"  height="256">
+<img src="https://raw.githubusercontent.com/brycedrennan/imaginAIry/master/assets/000056_293284644_PLMS40_PS7.5_photo_of_a_bowl_of_fruit.jpg" height="256"><img src="https://raw.githubusercontent.com/brycedrennan/imaginAIry/master/assets/000078_260972468_PLMS40_PS7.5_portrait_photo_of_a_freckled_woman.jpg"  height="256"><br>
+<img src="assets/009719_942389026_kdpmpp2m15_PS7.5_a_flower.gif" height="256">
+
 
 ###  🎉 Edit Images with Instructions alone! [by InstructPix2Pix](https://github.com/timothybrooks/instruct-pix2pix)
 Just tell imaginairy how to edit the image and it will do it for you!  
@@ -49,24 +54,27 @@ with prompt-based masking.
 
 ```bash
 >> aimg edit scenic_landscape.jpg "make it winter" --prompt-strength 20
+>> aimg edit scenic_landscape.jpg "make it winter" --steps 30 --arg-schedule "prompt_strength[2:25:0.5]" --compilation-anim
 >> aimg edit dog.jpg "make the dog red" --prompt-strength 5
 >> aimg edit bowl_of_fruit.jpg "replace the fruit with strawberries"
 >> aimg edit freckled_woman.jpg "make her a cyborg" --prompt-strength 13
->> aimg edit pearl_girl.jpg "make her wear clown makup"
->> aimg edit mona-lisa.jpg "make it a color professional photo headshot" --negative-prompt "old, ugly"
+# create a comparison gif
+>> aimg edit pearl_girl.jpg "make her wear clown makeup" --compare-gif
+# create an animation showing the edit with increasing prompt strengths
+>> aimg edit mona-lisa.jpg "make it a color professional photo headshot" --negative-prompt "old, ugly, blurry" --arg-schedule "prompt-strength[2:8:0.5]" --compilation-anim gif
 ```
 
 
 <img src="assets/scenic_landscape_winter.jpg" height="256"><img src="assets/dog_red.jpg" height="256"><br>
 <img src="assets/bowl_of_fruit_strawberries.jpg" height="256"><img src="assets/freckled_woman_cyborg.jpg" height="256"><br>
-<img src="assets/girl_with_a_pearl_earring_clown_makeup.jpg" height="256"><img src="assets/mona-lisa-headshot-photo.jpg" height="256"><br>
+<img src="assets/girl-pearl-clown-compare.gif" height="256"><img src="assets/mona-lisa-headshot-anim.gif" height="256"><br>
 
-Want just quickly have some fun? Try `--surprise-me` to apply some pre-defined edits.
+Want just quickly have some fun? Try `edit-demo` to apply some pre-defined edits.
 ```bash
->> aimg edit --gif --surprise-me pearl_girl.jpg
->> aimg edit --gif --surprise-me mona-lisa.jpg
->> aimg edit --gif --surprise-me luke.jpg
->> aimg edit --gif --surprise-me spock.jpg
+>> aimg edit-demo pearl_girl.jpg
+>> aimg edit-demo mona-lisa.jpg
+>> aimg edit-demo luke.jpg
+>> aimg edit-demo spock.jpg
 ```
 <img src="assets/girl_with_a_pearl_earring_suprise.gif" height="256"><img src="assets/mona-lisa-suprise.gif" height="256"><br>
 <img src="assets/luke-suprise.gif" height="256"><img src="assets/spock-suprise.gif" height="256"><br>
@@ -90,7 +98,7 @@ When writing strength modifiers keep in mind that pixel values are between 0 and
 
 ```bash
 >> imagine \
-    --init-image pearl_earring.jpg \ 
+    --init-image pearl_earring.jpg \
     --mask-prompt "face AND NOT (bandana OR hair OR blue fabric){*6}" \
     --mask-mode keep \
     --init-image-strength .2 \
@@ -281,9 +289,45 @@ docker run -it --gpus all -v $HOME/.cache/huggingface:/root/.cache/huggingface -
 ## Running on Google Colab
 [Example Colab](https://colab.research.google.com/drive/1rOvQNs0Cmn_yU1bKWjCOHzGVDgZkaTtO?usp=sharing)
 
+## Q&A
+
+**Q**: How do I change the cache directory for where models are stored?
+
+**A**: Set the `HUGGINGFACE_HUB_CACHE` environment variable. 
+
+
 ## ChangeLog
 
+**9.0.2**
+- fix: edit interface was broken
 
+**9.0.1**
+- fix: use entry_points for windows since setup.py scripts doesn't work on windows [#239](https://github.com/brycedrennan/imaginAIry/issues/239)
+
+**9.0.0**
+
+- perf: cli now has minimal overhead such that `aimg --help` runs in ~650ms instead of ~3400ms
+- feature: `edit` and `imagine` commands now accept multiple images (which they will process separately).  This allows 
+batch editing of images as requested in [#229](https://github.com/brycedrennan/imaginAIry/issues/229)
+- refactor: move `--surprise-me` to its own subcommand `edit-demo`
+- feature: allow selection of output image format with `--output-file-extension`
+- docs: make training fail on MPS platform with useful error message
+- docs: add directions on how to change model cache path
+
+**8.3.1**
+- fix: init-image-strength type
+
+**8.3.0**
+- feature: create `gifs` or `mp4s` from any images made in a single run with `--compilation-anim gif`
+- feature: create a series of images or edits by iterating over a parameter with the `--arg-schedule` argument
+- feature: `openjourney-v1` and `openjourney-v2` models added. available via `--model openjourney-v2`
+- feature: add upscale command line function: `aimg upscale`
+- feature: `--gif` option will create a gif showing the generation process for a single image
+- feature: `--compare-gif` option will create a comparison gif for any image edits
+- fix: tile mode was broken since latest perf improvements
+
+**8.2.0**
+- feature: added `aimg system-info` command to help debug issues
 
 **8.1.0**
 - feature: some memory optimizations and documentation
@@ -494,7 +538,7 @@ would be uncorrelated to the rest of the surrounding image.  It created terrible
 
 ## Todo
 
- - Performance Optimizations
+ - Inference Performance Optimizations
    - ✅ fp16
    - ✅ [Doggettx Sliced attention](https://github.com/CompVis/stable-diffusion/compare/main...Doggettx:stable-diffusion:autocast-improvements#)
    - ✅ xformers support https://www.photoroom.com/tech/stable-diffusion-100-percent-faster-with-memory-efficient-attention/
@@ -502,6 +546,7 @@ would be uncorrelated to the rest of the surrounding image.  It created terrible
    - https://github.com/CompVis/stable-diffusion/pull/177
    - https://github.com/huggingface/diffusers/pull/532/files
    - https://github.com/HazyResearch/flash-attention
+   - https://github.com/chavinlo/sda-node
    
  - Development Environment
    - ✅ add tests
@@ -509,8 +554,8 @@ would be uncorrelated to the rest of the surrounding image.  It created terrible
    - ✅ unified pipeline (txt2img & img2img combined)
    - ✅ setup parallel testing
    - add docs
-   - remove yaml config
-   - delete more unused code
+   - 🚫 remove yaml config
+   - 🚫 delete more unused code
    - faster latent logging https://discuss.huggingface.co/t/decoding-latents-to-rgb-without-upscaling/23204/9
  - Interface improvements
    - ✅ init-image at command line
@@ -519,14 +564,17 @@ would be uncorrelated to the rest of the surrounding image.  It created terrible
  - Image Generation Features
    - ✅ add k-diffusion sampling methods
    - ✅ tiling
-   - generation videos/gifs
+   - ✅ generation videos/gifs
    - Compositional Visual Generation
      - https://github.com/energy-based-model/Compositional-Visual-Generation-with-Composable-Diffusion-Models-PyTorch
      - https://colab.research.google.com/github/energy-based-model/Compositional-Visual-Generation-with-Composable-Diffusion-Models-PyTorch/blob/main/notebooks/demo.ipynb#scrollTo=wt_j3uXZGFAS
    - ✅ negative prompting
      - some syntax to allow it in a text string
-   - 🚫 images as actual prompts instead of just init images. 
+   - [paint with words](https://www.reddit.com/r/StableDiffusion/comments/10lzgze/i_figured_out_a_way_to_apply_different_prompts_to/)
+     - https://github.com/cloneofsimo/paint-with-words-sd 
+   - images as actual prompts instead of just init images. 
      - not directly possible due to model architecture.
+     - can it just be integrated into sampler? 
      - requires model fine-tuning since SD1.4 expects 77x768 text encoding input
      - https://twitter.com/Buntworthy/status/1566744186153484288
      - https://github.com/justinpinkney/stable-diffusion
@@ -609,6 +657,7 @@ would be uncorrelated to the rest of the surrounding image.  It created terrible
    - [Textual Inversion](https://arxiv.org/abs/2208.01618)
      - [Fast Textual Inversion](https://github.com/peterwilli/sd-leap-booster) 
    - [Low-rank Adaptation for Fast Text-to-Image Diffusion Fine-tuning (LORA)](https://github.com/cloneofsimo/lora)
+     - https://huggingface.co/spaces/lora-library/Low-rank-Adaptation 
    - Performance Improvements
     - [ColoassalAI](https://github.com/hpcaitech/ColossalAI/tree/main/examples/images/diffusion) - almost got it working but it's not easy enough to install to merit inclusion in imaginairy. We should check back in on this.
     - Xformers

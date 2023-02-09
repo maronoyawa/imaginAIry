@@ -2,44 +2,7 @@ import logging
 import os
 import re
 
-import numpy as np
-import torch
-import torch.nn
-from einops import rearrange, repeat
-from PIL import Image, ImageDraw, ImageOps
-from pytorch_lightning import seed_everything
-from torch.cuda import OutOfMemoryError
-
-from imaginairy.enhancers.clip_masking import get_img_mask
-from imaginairy.enhancers.describe_image_blip import generate_caption
-from imaginairy.enhancers.face_restoration_codeformer import enhance_faces
-from imaginairy.enhancers.upscale_realesrgan import upscale_image
-from imaginairy.img_utils import (
-    make_gif_image,
-    pillow_fit_image_within,
-    pillow_img_to_torch_image,
-)
-from imaginairy.log_utils import (
-    ImageLoggingContext,
-    log_conditioning,
-    log_img,
-    log_latent,
-)
-from imaginairy.model_manager import get_diffusion_model
-from imaginairy.modules.midas.utils import AddMiDaS
-from imaginairy.outpaint import outpaint_arg_str_parse, prepare_image_for_outpaint
-from imaginairy.safety import SafetyMode, create_safety_score
-from imaginairy.samplers import SAMPLER_LOOKUP
-from imaginairy.samplers.base import NoiseSchedule, noise_an_image
-from imaginairy.samplers.editing import CFGEditingDenoiser
-from imaginairy.schema import ImaginePrompt, ImagineResult
-from imaginairy.utils import (
-    fix_torch_group_norm,
-    fix_torch_nn_layer_norm,
-    get_device,
-    platform_appropriate_autocast,
-    randn_seeded,
-)
+from imaginairy.schema import SafetyMode
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +28,15 @@ def imagine_image_files(
     record_step_images=False,
     output_file_extension="jpg",
     print_caption=False,
-    make_comparison_gif=False,
+    make_gif=False,
+    make_compare_gif=False,
     return_filename_type="generated",
 ):
+    from PIL import ImageDraw
+
+    from imaginairy.animations import make_bounce_animation
+    from imaginairy.img_utils import pillow_fit_image_within
+
     generated_imgs_path = os.path.join(outdir, "generated")
     os.makedirs(generated_imgs_path, exist_ok=True)
 
@@ -86,6 +55,9 @@ def imagine_image_files(
         draw.text((10, 10), str(description))
         img.save(destination)
 
+    if make_gif:
+        for p in prompts:
+            p.collect_progress_latents = True
     result_filenames = []
     for result in imagine(
         prompts,
@@ -115,18 +87,42 @@ def imagine_image_files(
             logger.info(f"    [{image_type}] saved to: {filepath}")
             if image_type == return_filename_type:
                 result_filenames.append(filepath)
-        if make_comparison_gif and prompt.init_image:
+
+        if make_gif and result.progress_latents:
             subpath = os.path.join(outdir, "gif")
             os.makedirs(subpath, exist_ok=True)
             filepath = os.path.join(subpath, f"{basefilename}.gif")
+
+            frames = result.progress_latents + [result.images["generated"]]
+
+            if prompt.init_image:
+                resized_init_image = pillow_fit_image_within(
+                    prompt.init_image, prompt.width, prompt.height
+                )
+                frames = [resized_init_image] + frames
+            frames.reverse()
+            make_bounce_animation(
+                imgs=frames,
+                outpath=filepath,
+                start_pause_duration_ms=1500,
+                end_pause_duration_ms=1000,
+            )
+            logger.info(f"    [gif] {len(frames)} frames saved to: {filepath}")
+        if make_compare_gif and prompt.init_image:
+            subpath = os.path.join(outdir, "gif")
+            os.makedirs(subpath, exist_ok=True)
+            filepath = os.path.join(subpath, f"{basefilename}_[compare].gif")
             resized_init_image = pillow_fit_image_within(
                 prompt.init_image, prompt.width, prompt.height
             )
-            make_gif_image(
-                filepath,
-                imgs=[result.images["generated"], resized_init_image],
-                duration=1750,
+            frames = [result.images["generated"], resized_init_image]
+
+            make_bounce_animation(
+                imgs=frames,
+                outpath=filepath,
             )
+            logger.info(f"    [gif-comparison] saved to: {filepath}")
+
         base_count += 1
         del result
 
@@ -145,6 +141,16 @@ def imagine(
     unsafe_retry_count=1,
     persistent_mode=False
 ):
+    import torch.nn
+
+    from imaginairy.schema import ImaginePrompt
+    from imaginairy.utils import (
+        fix_torch_group_norm,
+        fix_torch_nn_layer_norm,
+        get_device,
+        platform_appropriate_autocast,
+    )
+
     prompts = [ImaginePrompt(prompts)] if isinstance(prompts, str) else prompts
     prompts = [prompts] if isinstance(prompts, ImaginePrompt) else prompts
 
@@ -179,7 +185,7 @@ def imagine(
                 if not result.is_nsfw:
                     break
                 if attempt < unsafe_retry_count:
-                    logger.info("   Image was unsafe, retrying with new seed...")
+                    logger.info("    Image was unsafe, retrying with new seed...")
 
             yield result
 
@@ -195,6 +201,34 @@ def _generate_single_image(
     persistent_mode=False
 ):
     global _persistent_model  # noqa
+    import numpy as np
+    import torch.nn
+    from einops import rearrange, repeat
+    from PIL import Image, ImageOps
+    from pytorch_lightning import seed_everything
+    from torch.cuda import OutOfMemoryError
+
+    from imaginairy.enhancers.clip_masking import get_img_mask
+    from imaginairy.enhancers.describe_image_blip import generate_caption
+    from imaginairy.enhancers.face_restoration_codeformer import enhance_faces
+    from imaginairy.enhancers.upscale_realesrgan import upscale_image
+    from imaginairy.img_utils import pillow_fit_image_within, pillow_img_to_torch_image
+    from imaginairy.log_utils import (
+        ImageLoggingContext,
+        log_conditioning,
+        log_img,
+        log_latent,
+    )
+    from imaginairy.model_manager import get_diffusion_model
+    from imaginairy.modules.midas.utils import AddMiDaS
+    from imaginairy.outpaint import outpaint_arg_str_parse, prepare_image_for_outpaint
+    from imaginairy.safety import create_safety_score
+    from imaginairy.samplers import SAMPLER_LOOKUP
+    from imaginairy.samplers.base import NoiseSchedule, noise_an_image
+    from imaginairy.samplers.editing import CFGEditingDenoiser
+    from imaginairy.schema import ImaginePrompt, ImagineResult
+    from imaginairy.utils import get_device, randn_seeded
+
     latent_channels = 4
     downsampling_factor = 8
     batch_size = 1
@@ -220,6 +254,11 @@ def _generate_single_image(
             _persistent_model = model
 
     has_depth_channel = hasattr(model, "depth_stage_key")
+    progress_latents = []
+
+    def latent_logger(latents):
+        progress_latents.append(latents)
+
     with ImageLoggingContext(
         prompt=prompt,
         model=model,
@@ -227,6 +266,9 @@ def _generate_single_image(
         progress_img_callback=progress_img_callback,
         progress_img_interval_steps=progress_img_interval_steps,
         progress_img_interval_min_s=progress_img_interval_min_s,
+        progress_latent_callback=latent_logger
+        if prompt.collect_progress_latents
+        else None,
     ) as lc:
         seed_everything(prompt.seed)
 
@@ -492,6 +534,8 @@ def _generate_single_image(
                     img,
                     safety_mode=IMAGINAIRY_SAFETY_MODE,
                 )
+            if safety_score.is_filtered:
+                progress_latents.clear()
             if not safety_score.is_filtered:
                 if prompt.fix_faces:
                     logger.info("Fixing 😊 's in 🖼  using CodeFormer...")
@@ -537,6 +581,7 @@ def _generate_single_image(
                 mask_grayscale=mask_grayscale,
                 depth_image=depth_image_display,
                 timings=lc.get_timings(),
+                progress_latents=progress_latents.copy(),
             )
             _most_recent_result = result
             logger.info(f"Image Generated. Timings: {result.timings_str()}")
